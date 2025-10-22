@@ -1,520 +1,548 @@
-import json
-from typing import List, Dict, Tuple, Optional
 
-from tqdm import tqdm
-
-from .llm_call import BaseLLM
-from .utils import safe_json_extract, build_session_chunks_from_text, build_pages_from_sessions_and_abstracts, tokenize
-from .retrieval import BM25Sessions
-from .prompts import (
-    MemoryAgent_PROMPT, 
-    SESSION_SUMMARY_PROMPT,
-    PLANNING_DEEP_RESEARCH_PROMPT,
-    REPLAN_FROM_SESSIONS_PROMPT,
-    MEMORY_SUMMARY_PROMPT
-)
+# agents.py
+# -*- coding: utf-8 -*-
+"""
+- Memory == list[str] of abstracts (no events/tags).
+- MemoryAgent exposes only: memorize(message) -> MemoryUpdate
+- ResearchAgent uses explicit Integrate(search_results, temp_memory) -> temp_memory.
+Prompts are placeholders.
+"""
 
 
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
+import re
 
 
-# ------------------------------
+# =============================
+# Core data models
+# =============================
+
+@dataclass
+class MemoryState:
+    """Long-term memory: only abstracts list."""
+    abstracts: List[str] = field(default_factory=list)
+
+
+@dataclass
+class Page:
+    page_id: Optional[str]  # Optional; can be set by external caller or left None
+    header: str
+    content: str
+    meta: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class MemoryUpdate:
+    new_state: MemoryState
+    new_page: Page
+    debug: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class SearchPlan:
+    info_needs: List[str] = field(default_factory=list)
+    tools: List[str] = field(default_factory=list)
+    tool_inputs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    keyword_collection: List[str] = field(default_factory=list)
+    vector_queries: List[str] = field(default_factory=list)
+    page_id_list: List[str] = field(default_factory=list)
+
+
+@dataclass
+class ToolResult:
+    tool: str
+    inputs: Dict[str, Any]
+    outputs: Any
+    error: Optional[str] = None   # None means success; otherwise error info.
+
+
+@dataclass
+class Hit:
+    page_id: Optional[str]          # For tool results without a page, keep None
+    snippet: str
+    source: str                     # "keyword" | "vector" | "page_id" | "tool:<name>"
+    meta: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class SearchResults:
+    """Combined results returned by _search before integration."""
+    hits: List[Hit] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)
+
+
+@dataclass
+class TempMemory:
+    """
+    Evolving temporary memory in research loop.
+    This is exactly: Integrate(search_results, temp_memory) -> temp_memory
+    """
+    hits: List[Hit] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)
+    keep_page_ids: List[str] = field(default_factory=list)
+
+
+@dataclass
+class ReflectionDecision:
+    enough: bool
+    new_request: Optional[str]
+    keep_page_ids: List[str] = field(default_factory=list)
+
+
+@dataclass
+class ResearchOutput:
+    integrated_memory: str
+    raw_memory: Dict[str, Any]
+
+
+# =============================
+# Minimal interfaces / protocols
+# =============================
+
+class MemoryStore(Protocol):
+    def load(self) -> MemoryState: ...
+    def save(self, state: MemoryState) -> None: ...
+
+
+class PageStore(Protocol):
+    def add(self, page: Page) -> None: ...
+    def get(self, page_id: str) -> Optional[Page]: ...
+    def list_all(self) -> List[Page]: ...
+
+
+class Retriever(Protocol):
+    """Unified interface for keyword / vector / page-id retrievers."""
+    name: str
+    def build(self, pages: List[Page]) -> None: ...
+    def search(self, query: str, top_k: int = 10) -> List[Hit]: ...
+
+
+class Tool(Protocol):
+    name: str
+    def run(self, **kwargs) -> ToolResult: ...
+
+
+class ToolRegistry(Protocol):
+    def run_many(self, tool_inputs: Dict[str, Dict[str, Any]]) -> List[ToolResult]: ...
+
+
+# =============================
+# In-memory default stores (for quick start)
+# =============================
+
+class InMemoryMemoryStore:
+    def __init__(self, init_state: Optional[MemoryState] = None) -> None:
+        self._state = init_state or MemoryState()
+
+    def load(self) -> MemoryState:
+        return self._state
+
+    def save(self, state: MemoryState) -> None:
+        self._state = state
+
+
+class InMemoryPageStore:
+    """
+    Simple append-only list store for Page.
+    page_id is optional; .get() returns the most recent page with that id.
+    """
+    def __init__(self) -> None:
+        self._pages: List[Page] = []
+
+    def add(self, page: Page) -> None:
+        self._pages.append(page)
+
+    def get(self, page_id: str) -> Optional[Page]:
+        # Find last matching page_id
+        for p in reversed(self._pages):
+            if p.page_id == page_id:
+                return p
+        return None
+
+    def list_all(self) -> List[Page]:
+        return list(self._pages)
+
+
+# =============================
 # MemoryAgent
-# ------------------------------
+# =============================
 
 class MemoryAgent:
-
-    def __init__(self, llm, temperature=0.3):
-        self.llm = llm
-        self.memory_history = []
-        self.system_prompt = MemoryAgent_PROMPT
-        self.temperature = temperature
-
-
-    def _next_event_id(self, prev_events: List[Dict], offset: int) -> str:
-        existing_ids = [e.get("id", "") for e in prev_events if "id" in e]
-        return f"event-{len(existing_ids) + offset + 1}"
-
-
-    def memory_agent_step_merge(self, *, session_id: int, session_text: str,
-                                prev_state: Optional[str] = None) -> str:
-
-
-
-        prev_state_json = {"events": []} if not prev_state else json.loads(prev_state)
-        historical_events: List[Dict] = prev_state_json.get("events", [])
-
-
-        user_payload = {
-            # "prev_events": historical_events,
-            "session": session_text,
-            "round_id": session_id
-        }
-        prompt = (
-            self.system_prompt
-            + "\n\n---\nUSER PAYLOAD (strict JSON expected):\n"
-            + json.dumps(user_payload, ensure_ascii=False)
-            + "\n\nReturn ONLY one valid JSON object as specified. No markdown, no extra text."
-        )
-
-        max_retry = 3
-
-        for retry_count in range(max_retry + 1):
-            try:
-                output = self.llm.generate(str(prompt))
-                output_json = json.loads(output)
-                break
-            except Exception as e:
-                if retry_count < max_retry:
-                    print(f"[MemoryAgent] 第 {session_id} 个 session 的 LLM 输出解析失败 (重试 {retry_count + 1}/{max_retry}): {str(e)}")
-                else:
-                    print(f"[MemoryAgent] 警告: 第 {session_id} 个 session 的 LLM 输出解析失败，已达到最大重试次数 {max_retry}，使用空 events")
-                    output_json = {"events": []}
-
-        new_events: List[Dict] = output_json.get("events", []) or []
-        new_abstract: str = output_json.get("abstract", "") or ""
-        
-        merged = list(historical_events)
-        for i, ev in enumerate(new_events):
-            if "id" not in ev:
-                ev["id"] = self._next_event_id(historical_events, i)
-            merged.append(ev)
-
-        current_state_json = {
-            "events": merged,
-            "abstract": new_abstract
-        }
-        current_state_str = json.dumps(current_state_json, ensure_ascii=False, indent=2)
-
-
-        self.memory_history.append({
-            "session_id": session_id,
-            "session_text": session_text,
-            "output": current_state_str
-        })
-        return current_state_str
-
-
-    def run_memory_agent(self, sessions: List[str]) -> List[Dict]:
-        """
-        顺序处理所有 sessions，逐步演化记忆状态。
-        """
-        if not sessions:
-            return []
-
-        prev_state = None
-        for i, sess in tqdm(enumerate(sessions, start=1), total=len(sessions), desc="处理 sessions", unit="段"):
-            prev_state = self.memory_agent_step_merge(
-                session_id=i,
-                session_text=sess,
-                prev_state=prev_state
-            )
-        return self.memory_history
-
-
-    def get_final_memory_output(self) -> dict:
-        if not self.memory_history:
-            return {"events": []}
-        last_out = self.memory_history[-1].get("output")
-        try:
-            return json.loads(last_out) if isinstance(last_out, str) else (last_out or {"events": []})
-        except Exception:
-            return {"events": []}
-
-    def get_session_abstracts(self) -> List[str]:
-        """
-        获取所有session的abstracts
-        
-        Returns:
-            List[str]: 每个session对应的abstract列表
-        """
-        abstracts = []
-        for history_item in self.memory_history:
-            try:
-                output = history_item.get("output")
-                if isinstance(output, str):
-                    data = json.loads(output)
-                else:
-                    data = output or {}
-                
-                abstract = data.get("abstract", "")
-                abstracts.append(abstract)
-            except Exception:
-                abstracts.append("")
-        
-        return abstracts
-
-    def get_memory_with_abstracts(self) -> dict:
-        """
-        获取完整的记忆状态，包括events和session_abstracts
-        
-        Returns:
-            dict: 包含events和session_abstracts的完整记忆状态
-        """
-        final_memory = self.get_final_memory_output()
-        session_abstracts = self.get_session_abstracts()
-        
-        return {
-            "events": final_memory.get("events", []),
-            "abstract": final_memory.get("abstract", ""),
-            "session_abstracts": session_abstracts
-        }
-
-
-
-
-class DeepResearchAgent:
     """
-    迭代流程（基于“原始 sessions”）：
-      Planning（need_search? mode? session_ids? keywords?）
-        → Searching（by_session &/or by_keywords；只针对 SESSIONS）
-        → Reflection（够不够？不够就生成下一轮 plan）
-        → Summarizing（结构化输出）
+    Public API:
+      - memorize(message) -> MemoryUpdate
+    Internal only:
+      - _decorate(message, memory_state) -> (header, decorated_new_page)
+    Note: memory_state contains ONLY abstracts (list[str]).
     """
-    def __init__(self, llm, temperature=0.3, max_iterations: int = 3, bm25_k1: float = 1.5, bm25_b: float = 0.75):
-        self.llm = llm
-        self.temperature = temperature
-        self.max_iterations = max_iterations
-        self.search_index = BM25Sessions(k1=bm25_k1, b=bm25_b)
-        self._index_built = False
-        self._session_map: Dict[int, str] = {}
-        self.working_notes: List[Dict] = []  # [{"claim": "...", "support": [{"session_id": x, "quote": "..."}]}]
-        self.decided_useful_sessions: List[int] = []  # 汇总 keep 的 session_id
 
+    def __init__(
+        self,
+        memory_store: MemoryStore | None = None,
+        page_store: PageStore | None = None,
+        llm: Optional[Callable[[str], str]] = None,
+    ) -> None:
+        self.memory_store = memory_store or InMemoryMemoryStore()
+        self.page_store = page_store or InMemoryPageStore()
+        self.llm = llm  # optional, can be None for MVP
 
-    def _build_index_from_pages(self, pages: List[str]):
+    # ---- Public ----
+    def memorize(self, message: str) -> MemoryUpdate:
         """
-        从已经构建好的pages构建索引
-        pages: List[str] - 已经格式化的page内容列表
+        Update long-term memory with a new message and persist a decorated page.
+        Steps:
+          1) Create/Refine abstract (LLM optional; heuristic fallback)
+          2) Merge into MemoryState (append unique abstract)
+          3) _decorate(...) => header, decorated_new_page
+          4) Write Page into page_store  (page_id left None by default)
         """
-        docs: List[Tuple[int, str]] = []
-        self._session_map.clear()        
+        message = message.strip()
+        state = self.memory_store.load()
 
-        if not pages:
-            self.search_index.build(docs)
-            self._index_built = True
-            return
+        # (1) Build abstract
+        abstract = self._make_abstract(message)
 
-        # 直接使用pages构建索引
-        for i, page_content in enumerate(pages, start=1):
-            if not page_content.strip():
-                continue
-            self._session_map[i] = page_content
-            docs.append((i, page_content))
+        # (2) Merge into memory (only abstracts)
+        # simple uniqueness check
+        if abstract and abstract not in state.abstracts:
+            state.abstracts.append(abstract)
+        # keep last 100
+        if len(state.abstracts) > 100:
+            state.abstracts = state.abstracts[-100:]
 
-        self.search_index.build(docs)
-        self._index_built = True
-     
+        # (3) Decorate
+        header, decorated_new_page = self._decorate(message, state)
 
+        # (4) Persist page (no page_id assigned here)
+        page = Page(page_id=None, header=header, content=message, meta={"decorated": decorated_new_page})
+        self.page_store.add(page)
+        self.memory_store.save(state)
 
-    def _planning_gate(self, question: str, memory: str = "", working_notes: Optional[List[Dict]] = None) -> dict:
-        prompt = (PLANNING_DEEP_RESEARCH_PROMPT
-                  + "\nQUESTION:\n" + str(question)
-                  + "\nMEMORY:\n" + (memory or "")
-                  + "\nWORKING_NOTES:\n" + json.dumps(working_notes or [], ensure_ascii=False))
-        raw = self.llm.generate(prompt)
-        data = safe_json_extract(raw)
-        if not isinstance(data, dict):
-            data = {
-                "need_search": True,
-                "mode": "by_keywords",
-                "session_ids": [],
-                "keywords": [],
-                "reasoning": "fallback"
-            }
-        mode = data.get("mode") or "by_keywords"
-        if mode not in ("by_session", "by_keywords", "hybrid"):
-            mode = "by_keywords"
+        return MemoryUpdate(new_state=state, new_page=page, debug={"decorated_page": decorated_new_page})
 
-        session_ids = []
-        for x in (data.get("session_ids") or []):
-            try:
-                session_ids.append(int(x))
-            except Exception:
-                continue
-        keywords = [str(x) for x in (data.get("keywords") or []) if str(x).strip()]
-
-        return {
-            "need_search": bool(data.get("need_search", True)),
-            "mode": mode,
-            "session_ids": session_ids[:12],
-            "keywords": keywords[:8],
-            "reasoning": data.get("reasoning", "")
-        }
-
-
-    # ---------- Searching（对“sessions”做检索） ----------
-    def _search_by_session_ids(self, session_ids: List[int]) -> List[int]:
-        found = []
-        for sid in session_ids or []:
-            if sid in self._session_map and self._session_map[sid]:
-                found.append(sid)
-
-        seen, ordered = set(), []
-        for s in found:
-            if s not in seen:
-                seen.add(s); ordered.append(s)
-        return ordered
-
-
-    def _search_by_keywords(self, keywords: List[str], topk_sessions: int = 8) -> List[int]:
-        if not self._index_built:
-            return []
-        q_terms = []
-        for kw in keywords or []:
-            q_terms.extend(tokenize(kw))
-        q_terms = list(dict.fromkeys(q_terms))[:12]
-        if not q_terms:
-            return []
-        return self.search_index.search(q_terms, topk=topk_sessions)
-
-
-
-    def _search_router(self, plan: dict, topk_sessions: int = 8) -> List[int]:
-        results: List[int] = []
-        mode = plan.get("mode")
-        if mode in ("by_session", "hybrid"):
-            results += self._search_by_session_ids(plan.get("session_ids", []))
-        if mode in ("by_keywords", "hybrid"):
-            results += self._search_by_keywords(plan.get("keywords", []), topk_sessions=topk_sessions)
-
-        seen, merged = set(), []
-        for sid in results:
-            if sid not in seen:
-                seen.add(sid); merged.append(sid)
-        return merged
-
-
-    def _reflection(self, memory: str, question: str, ctx_session_ids: List[int], working_notes: List[Dict]) -> Tuple[bool, dict]:
-        snippets = []
-        for sid in ctx_session_ids[:6]:
-            txt = self._session_map.get(sid, "") or ""
-            snippets.append({"session_id": sid, "snippet": txt})
-
-        prompt = (REPLAN_FROM_SESSIONS_PROMPT
-                  + "\nQUESTION:\n" + str(question)
-                  + "\nMEMORY:\n" + str(memory)
-                  + "\nWORKING_NOTES:\n" + json.dumps(working_notes or [], ensure_ascii=False)
-                  + "\nSESSIONS_SNIPPETS:\n" + json.dumps(snippets, ensure_ascii=False))
-        raw = self.llm.generate(prompt)
-        data = safe_json_extract(raw)
-
-        if not isinstance(data, dict):
-            return False, {
-                "plan": {"need_search": True, "mode": "by_keywords", "session_ids": [], "keywords": [], "reasoning": "fallback"},
-                "notes_delta": [],
-                "keep_ids": []
-            }
-
-        enough = bool(data.get("enough", False))
-        next_plan = data.get("next_plan") or {}
-        notes_delta = data.get("notes_delta") or []
-        keep_ids_raw = data.get("keep_session_ids") or []
-
-
-        mode = next_plan.get("mode") or "by_keywords"
-        if mode not in ("by_session", "by_keywords", "hybrid"):
-            mode = "by_keywords"
-
-        session_ids = []
-        for x in (next_plan.get("session_ids") or []):
-            try:
-                session_ids.append(int(x))
-            except Exception:
-                continue
-        keywords = [str(x) for x in (next_plan.get("keywords") or []) if str(x).strip()]
-
-        keep_ids: List[int] = []
-        for x in keep_ids_raw:
-            try:
-                keep_ids.append(int(x))
-            except Exception:
-                continue
-
-
-        plan_norm = {
-            "need_search": not enough,
-            "mode": mode,
-            "session_ids": session_ids[:12],
-            "keywords": keywords[:8],
-            "reasoning": "reflection-driven"
-        }
-        return enough, {"plan": plan_norm, "notes_delta": notes_delta, "keep_ids": keep_ids}
-
-
-    def _summarize_sessions(self, question: str, session_ids: List[int]) -> dict:
-        sessions_data = []
-        for sid in session_ids:
-            txt = self._session_map.get(sid, "")
-            if txt:
-                sessions_data.append({"session_id": sid, "text": txt})
-
-        prompt = (SESSION_SUMMARY_PROMPT
-                  + "\nQUESTION:\n" + str(question)
-                  + "\nRETRIEVED_SESSIONS:\n" + json.dumps(sessions_data, ensure_ascii=False))
-        raw = self.llm.generate(prompt)
-        data = safe_json_extract(raw)
-
-        if isinstance(data, dict):
-            return {
-                "summary": data.get("summary", ""),
-                "session_ids_used": [s["session_id"] for s in sessions_data]
-            }
-        return {
-            "summary": raw if isinstance(raw, str) else "",
-            "session_ids_used": [s["session_id"] for s in sessions_data]
-        }
-
-
-
-    def _summarize_memory(self, question: str, memory: str) -> dict:
-        prompt = (MEMORY_SUMMARY_PROMPT
-                  + "\nQUESTION:\n" + str(question)
-                  + "\nMEMORY:\n" + str(memory))
-        raw = self.llm.generate(prompt)
-        data = safe_json_extract(raw)
-
-        if isinstance(data, dict):
-            return {
-                "summary": data.get("summary", ""),
-                "session_ids_used": []
-            }
-        return {
-            "summary": raw if isinstance(raw, str) else "",
-            "session_ids_used": []
-        }
-
-    @staticmethod
-    def _dedupe_notes(notes: List[Dict]) -> List[Dict]:
-        seen = set()
-        deduped = []
-        for n in notes or []:
-            claim = (n.get("claim") or "").strip()
-            if not claim:
-                continue
-            if claim not in seen:
-                seen.add(claim)
-                # 规范 support
-                sup = n.get("support") or []
-                clean_sup = []
-                for s in sup:
-                    try:
-                        clean_sup.append({
-                            "session_id": int(s.get("session_id")),
-                            "quote": (s.get("quote") or "").strip()[:240]
-                        })
-                    except Exception:
-                        continue
-                deduped.append({"claim": claim, "support": clean_sup})
-        return deduped
-
-    @staticmethod
-    def _merge_summary_with_notes(summary_json_str: str, notes: List[Dict]) -> str:
+    # ---- Internal helpers ----
+    def _decorate(self, message: str, memory_state: MemoryState) -> Tuple[str, str]:
         """
-        把 working_notes 中未体现的 claim 以“补充证据”形式并入 JSON summary 字段（不改变外层 schema）。
-        - 若 summary_json_str 是纯字符串，将其包一层“正文 + 补充”。
-        - 若是 JSON 字符串（仅含 "summary"），则合并为同一字符串。
+        Private. Build a header from the current memory state and compose: "header; new_page".
+        Header uses the latest abstract only.
         """
-        try:
-            base_summary = json.loads(summary_json_str)  # 若本身就是 JSON，就不动
-            # 极少见；通常你的 SESSION_SUMMARY_PROMPT 返回 {"summary": "..."}，此处 summary_json_str 其实是 str
-            return summary_json_str
-        except Exception:
+        latest_abs = memory_state.abstracts[-1] if memory_state.abstracts else ""
+        header = f"[ABSTRACT] {latest_abs}".strip()
+        decorated_new_page = f"{header}; {message}"
+        return header, decorated_new_page
+
+    def _make_abstract(self, message: str) -> str:
+        """
+        Produce a concise abstract for the message.
+        - PROMPT PLACEHOLDER: if LLM is provided, call it.
+        - Heuristic fallback: first sentence or leading ~200 chars.
+        """
+        if self.llm:
+            # ---- PROMPT PLACEHOLDER ----
+            # Replace with an LLM prompt that returns a concise abstract (<= 3 sentences).
             pass
 
-        notes = DeepResearchAgent._dedupe_notes(notes)
-        if not notes:
-            return summary_json_str
-
-        # 生成补充段
-        extra_lines = ["\n\n[Supplemental Evidence]"]
-        for i, n in enumerate(notes, 1):
-            sup_strs = []
-            for s in n.get("support", []):
-                sup_strs.append(f"(s{int(s['session_id'])})")
-            sup_join = " ".join(sup_strs) if sup_strs else ""
-            extra_lines.append(f"{i}. {n.get('claim','')}{(' ' + sup_join) if sup_join else ''}")
-        merged = (summary_json_str or "").rstrip() + "\n" + "\n".join(extra_lines)
-        return merged
+        parts = re.split(r'[。.!?]\s*', message, maxsplit=1)
+        base = parts[0] if (parts and parts[0]) else message[:200]
+        # simple whitespace normalization inline
+        return " ".join(base.split())[:200]
 
 
-    def deep_research(self, question: str, memory: dict, pages: List[str], max_sessions: int = 8) -> dict:
+# =============================
+# ResearchAgent
+# =============================
+
+class ResearchAgent:
+    """
+    Public API:
+      - research(request) -> ResearchOutput
+    Internal steps:
+      - _planning(request, memory_state) -> SearchPlan
+      - _search(plan) -> SearchResults  (calls keyword/vector/page_id + tools)
+      - _integrate(search_results, temp_memory) -> TempMemory
+      - _reflection(request, memory_state, temp_memory) -> ReflectionDecision
+
+    Note: memory_state should be MemoryState with ONLY abstracts list.
+    """
+
+    def __init__(
+        self,
+        page_store: PageStore,
+        tool_registry: Optional[ToolRegistry] = None,
+        retrievers: Optional[Dict[str, Retriever]] = None,
+        llm: Optional[Callable[[str], str]] = None,
+        max_iters: int = 3,
+        memory_state: Optional[MemoryState] = None,
+    ) -> None:
+        self.page_store = page_store
+        self.tools = tool_registry
+        self.retrievers = retrievers or {}
+        self.llm = llm  # optional
+        self.max_iters = max_iters
+        self.memory_state = memory_state or MemoryState()
+
+        # Build indices upfront (if retrievers are provided)
+        pages = self.page_store.list_all()
+        for r in self.retrievers.values():
+            try:
+                r.build(pages)
+            except Exception:
+                pass
+
+    # ---- Public ----
+    def research(self, request: str) -> ResearchOutput:
+        temp = TempMemory()
+        iterations: List[Dict[str, Any]] = []
+        next_request = request
+
+        for step in range(self.max_iters):
+            plan = self._planning(next_request, self.memory_state)
+
+            search_results = self._search(plan)
+
+            temp = self._integrate(search_results, temp)
+
+            decision = self._reflection(request, self.memory_state, temp)
+
+            iterations.append({
+                "step": step,
+                "plan": plan.__dict__,
+                "hits_snapshot": [h.__dict__ for h in temp.hits[-20:]],
+                "decision": decision.__dict__,
+            })
+
+            if decision.enough:
+                break
+
+            if not decision.new_request:
+                break
+
+            next_request = decision.new_request
+            # extend keep ids (unique while preserving order)
+            for pid in decision.keep_page_ids:
+                if pid not in temp.keep_page_ids:
+                    temp.keep_page_ids.append(pid)
+
+        integrated = self._summarize(temp, request)
+        raw = {
+            "iterations": iterations,
+            "final_hits": [h.__dict__ for h in temp.hits],
+            "notes": temp.notes,
+            "keep_page_ids": temp.keep_page_ids,
+        }
+        return ResearchOutput(integrated_memory=integrated, raw_memory=raw)
+
+    # ---- Internal ----
+    def _planning(self, request: str, memory_state: MemoryState) -> SearchPlan:
         """
-        参数：
-          - question: 用户问题
-          - memory: MemoryAgent 最终状态（dict 或 str）
-          - pages: 已经构建好的page列表，格式为 "ABSTRACT: ...\n\nCONTENT: ..."
-        返回：
-          {
-            "summary": str,
-            "session_ids_used": [...],
-            "iterations": int,
-            "working_notes": [...],            # 新增：返回累积的笔记，便于调试 / 透明化
-            "decided_useful_sessions": [...]   # 新增：最终保留的上下文
-          }
+        Produce a SearchPlan:
+          - what specific info is needed
+          - which tools are useful + inputs
+          - keyword/vector/page_id payloads
+        PROMPT PLACEHOLDER: if LLM provided, call it; else heuristic.
         """
-        # 1) 索引构建
-        memory_str = memory if isinstance(memory, str) else json.dumps(memory or {}, ensure_ascii=False)
-        
-        # 直接使用pages构建索引
-        self._build_index_from_pages(pages)
+        if self.llm:
+            # ---- PROMPT PLACEHOLDER ----
+            # Compose a planning prompt using memory_state.abstracts as context.
+            # Parse JSON to SearchPlan.
+            pass
 
-        # 2) 初次 Planning
-        plan = self._planning_gate(question, memory_str, self.working_notes)
-        context_sessions: List[int] = []
+        # Heuristic: request tokens + last 3 abstracts tokens
+        req_tokens = re.findall(r"[A-Za-z\u4e00-\u9fa5]+", request)
+        mem_tokens: List[str] = []
+        for a in memory_state.abstracts[-3:]:
+            mem_tokens.extend(re.findall(r"[A-Za-z\u4e00-\u9fa5]+", a))
 
+        keywords: List[str] = []
+        for t in req_tokens + mem_tokens:
+            t = t.lower()
+            if t not in keywords:
+                keywords.append(t)
+            if len(keywords) >= 8:
+                break
 
-        if not plan.get("need_search"):
-            result = self._summarize_memory(question, memory_str)
-            result["summary"] = self._merge_summary_with_notes(result["summary"], self.working_notes)
-            result["iterations"] = 0
-            result["working_notes"] = list(self.working_notes)
-            result["decided_useful_sessions"] = list(self.decided_useful_sessions)
-            return result
+        info_needs = [f"Need: {k}" for k in keywords] or [f"Clarify: {request[:80]}"]
+        return SearchPlan(
+            info_needs=info_needs,
+            tools=[],
+            tool_inputs={},
+            keyword_collection=keywords[:5],
+            vector_queries=[request],
+            page_id_list=[],
+        )
 
-        # 3) 循环：Searching → Reflection →（足够则 Summarizing）
-        for it in range(self.max_iterations):
-            new_sessions = self._search_router(plan, topk_sessions=max_sessions)
-            
-            seen = set(context_sessions)
-            for sid in new_sessions:
-                if sid not in seen:
-                    context_sessions.append(sid)
-                    seen.add(sid)
-            context_sessions = context_sessions[:max_sessions]
+    def _search(self, plan: SearchPlan) -> SearchResults:
+        """
+        Unified search:
+          1) Tools
+          2) Keyword retriever
+          3) Vector retriever
+          4) Page-id lookup
+        Returns SearchResults; integration is done separately.
+        """
+        hits: List[Hit] = []
+        notes: List[str] = []
 
-            enough, ref_out = self._reflection(memory_str, question, context_sessions, self.working_notes)
+        # 1) Tools
+        if plan.tools and self.tools is not None:
+            tool_results = self.tools.run_many(plan.tool_inputs)
+            for tr in tool_results:
+                if tr.error is None:
+                    snippet = str(tr.outputs)[:280]
+                    hits.append(Hit(page_id=None, snippet=snippet, source=f"tool:{tr.tool}", meta={"inputs": tr.inputs}))
+                else:
+                    notes.append(f"Tool {tr.tool} error: {tr.error}")
 
-            self.working_notes.extend(ref_out.get("notes_delta", []))
-            self.working_notes = self._dedupe_notes(self.working_notes)
+        # 2) Keyword
+        for kw in plan.keyword_collection:
+            hits.extend(self._search_by_keyword(kw, top_k=8))
 
-            keep_ids = ref_out.get("keep_ids", [])
-            if keep_ids:
-                # 记录全局“已确认有用”
-                for k in keep_ids:
-                    if k not in self.decided_useful_sessions:
-                        self.decided_useful_sessions.append(k)
-                # 把 keep 放前面，再追加其它 context
-                front = []
-                seen = set()
-                for sid in keep_ids + context_sessions:
-                    if sid not in seen:
-                        front.append(sid); seen.add(sid)
-                context_sessions = front[:max_sessions]            
+        # 3) Vector
+        for vq in plan.vector_queries:
+            hits.extend(self._search_by_vector(vq, top_k=8))
 
+        # 4) Page ID
+        if plan.page_id_list:
+            hits.extend(self._search_by_page_id(plan.page_id_list))
 
-            if enough:
-                result = self._summarize_sessions(question, context_sessions)
-                result["summary"] = self._merge_summary_with_notes(result["summary"], self.working_notes)
-                result["iterations"] = it + 1
-                result["working_notes"] = list(self.working_notes)
-                result["decided_useful_sessions"] = list(self.decided_useful_sessions)
-                return result
+        return SearchResults(hits=hits, notes=notes)
 
-            plan = ref_out["plan"]
+    def _integrate(self, search_results: SearchResults, temp_memory: TempMemory) -> TempMemory:
+        """
+        Integrate(search_results, temp_memory) -> temp_memory
+        - Deduplicate hits
+        - Append notes
+        - Maintain/extend keep_page_ids (include any page_ids from new hits)
+        """
+        merged_hits = self._merge_hits(temp_memory.hits, search_results.hits)
 
-        result = self._summarize_sessions(question, context_sessions)
-        result["summary"] = self._merge_summary_with_notes(result["summary"], self.working_notes)
-        result["iterations"] = self.max_iterations
-        result["working_notes"] = list(self.working_notes)
-        result["decided_useful_sessions"] = list(self.decided_useful_sessions)
-        return result
+        # append notes (unique keep order)
+        merged_notes = list(temp_memory.notes)
+        for n in search_results.notes:
+            if n not in merged_notes:
+                merged_notes.append(n)
+
+        keep_ids = list(temp_memory.keep_page_ids)
+        for h in search_results.hits:
+            if h.page_id and h.page_id not in keep_ids:
+                keep_ids.append(h.page_id)
+
+        return TempMemory(hits=merged_hits, notes=merged_notes, keep_page_ids=keep_ids)
+
+    # ---- search channels ----
+    def _search_by_keyword(self, query: str, top_k: int = 10) -> List[Hit]:
+        r = self.retrievers.get("keyword")
+        if r is not None:
+            try:
+                return r.search(query, top_k=top_k)
+            except Exception:
+                return []
+        # naive fallback: scan pages for substring
+        out: List[Hit] = []
+        q = query.lower()
+        for p in self.page_store.list_all():
+            if q in p.content.lower() or q in p.header.lower():
+                snippet = p.content[:200]
+                out.append(Hit(page_id=p.page_id, snippet=snippet, source="keyword", meta={}))
+                if len(out) >= top_k:
+                    break
+        return out
+
+    def _search_by_vector(self, query: str, top_k: int = 10) -> List[Hit]:
+        r = self.retrievers.get("vector")
+        if r is not None:
+            try:
+                return r.search(query, top_k=top_k)
+            except Exception:
+                return []
+        # fallback: none
+        return []
+
+    def _search_by_page_id(self, page_ids: List[str]) -> List[Hit]:
+        out: List[Hit] = []
+        for pid in page_ids:
+            p = self.page_store.get(pid)
+            if p:
+                out.append(Hit(page_id=p.page_id, snippet=p.content[:200], source="page_id", meta={}))
+        return out
+
+    # ---- reflection & summarization ----
+    def _reflection(self, request: str, memory_state: MemoryState, temp_memory: TempMemory) -> ReflectionDecision:
+        """
+        PROMPT PLACEHOLDER:
+          If an LLM is available, judge sufficiency of information and generate a new_request if insufficient.
+        Heuristic fallback:
+          enough = >=5 hits OR overlap of request tokens with evidence >= 5.
+        """
+        if self.llm:
+            # ---- PROMPT PLACEHOLDER ----
+            # Craft a reflection prompt; context: memory_state.abstracts & temp_memory.hits
+            pass
+
+        req_tokens = set(re.findall(r"[A-Za-z\u4e00-\u9fa5]+", request.lower()))
+        overlap = 0
+        for h in temp_memory.hits:
+            text = h.snippet.lower()
+            for t in req_tokens:
+                if t and t in text:
+                    overlap += 1
+        enough_by_overlap = overlap >= 5
+        enough = enough_by_overlap or (len(temp_memory.hits) >= 5)
+
+        new_request = None if enough else f"Add more specific details to cover unmet info needs about: {request[:100].strip()}"
+        # keep top-5 page_ids by frequency
+        freq: Dict[str, int] = {}
+        for h in temp_memory.hits:
+            if h.page_id:
+                freq[h.page_id] = freq.get(h.page_id, 0) + 1
+        keep_ids = [pid for pid, _cnt in sorted(freq.items(), key=lambda kv: kv[1], reverse=True)[:5]]
+
+        return ReflectionDecision(enough=enough, new_request=new_request, keep_page_ids=keep_ids)
+
+    def _merge_hits(self, old_hits: List[Hit], new_hits: List[Hit]) -> List[Hit]:
+        """Deduplicate by (page_id, normalized_snippet, source)."""
+        seen: set[Tuple[Optional[str], str, str]] = set()
+        out: List[Hit] = []
+
+        def normalize_snippet(s: str) -> str:
+            # collapse whitespace inline; limit length for dedup key
+            return " ".join(s.split())[:160]
+
+        def key(h: Hit) -> Tuple[Optional[str], str, str]:
+            return (h.page_id, normalize_snippet(h.snippet), h.source)
+
+        for h in old_hits + new_hits:
+            k = key(h)
+            if k not in seen:
+                seen.add(k)
+                out.append(h)
+        # cap size to avoid unbounded growth
+        return out[-200:]
+
+    def _summarize(self, temp_memory: TempMemory, request: str) -> str:
+        """
+        Produce a concise integrated summary for the user, with light traceability.
+        PROMPT PLACEHOLDER: replace heuristic with LLM summarization if available.
+        """
+        if self.llm:
+            # ---- PROMPT PLACEHOLDER ----
+            # Summarize hits + notes into a final answer.
+            pass
+
+        lines = [f"# Integrated Summary for: {request}",
+                 f"- total_hits: {len(temp_memory.hits)}",
+                 f"- kept_pages: {len(temp_memory.keep_page_ids)}"]
+        if temp_memory.hits:
+            lines.append("## Evidence preview")
+            for h in temp_memory.hits[:5]:
+                pid = h.page_id or "N/A"
+                snippet = " ".join(h.snippet.split())[:140]
+                lines.append(f"  • [{h.source}] pid={pid} :: {snippet}")
+        if temp_memory.notes:
+            lines.append("## Notes")
+            for n in temp_memory.notes[-5:]:
+                lines.append(f"- {n}")
+        return "\n".join(lines)
