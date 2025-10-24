@@ -71,7 +71,7 @@ class Hit:
 
 
 @dataclass
-class TempMemory:
+class Result:
     """
     Temporary memory containing question-relevant information.
     This is the result of LLM processing search results into relevant memory.
@@ -285,7 +285,7 @@ class ResearchAgent:
 
     # ---- Public ----
     def research(self, request: str) -> ResearchOutput:
-        temp = TempMemory()
+        temp = Result()
         iterations: List[Dict[str, Any]] = []
         next_request = request
 
@@ -358,12 +358,12 @@ class ResearchAgent:
             )
     
 
-    def _search(self, plan: SearchPlan, temp_memory: TempMemory, question: str) -> TempMemory:
+    def _search(self, plan: SearchPlan, temp_memory: Result, question: str) -> Result:
         """
         Unified search with integration:
           1) Execute search tools
           2) Integrate results with LLM
-        Returns TempMemory directly.
+        Returns Result directly.
         """
         hits: List[Hit] = []
 
@@ -384,9 +384,9 @@ class ResearchAgent:
         # Integrate search results with LLM
         return self._integrate(hits, temp_memory, question)
 
-    def _integrate(self, hits: List[Hit], temp_memory: TempMemory, question: str) -> TempMemory:
+    def _integrate(self, hits: List[Hit], temp_memory: Result, question: str) -> Result:
         """
-        Integrate search hits with LLM to generate question-relevant temp_memory.
+        Integrate search hits with LLM to generate question-relevant result.
         """
         # Build evidence context from search hits
         evidence_text = []
@@ -407,7 +407,7 @@ class ResearchAgent:
             response = self.llm.generate(prompt=prompt, max_tokens=800, schema=INTEGRATE_SCHEMA)
             data = response.get("json") or json.loads(response["text"])
             
-            return TempMemory(
+            return Result(
                 content=data.get("content", ""),
                 sources=data.get("sources", sources)
             )
@@ -454,7 +454,7 @@ class ResearchAgent:
         
 
     # ---- reflection & summarization ----
-    def _reflection(self, request: str, temp_memory: TempMemory) -> ReflectionDecision:
+    def _reflection(self, request: str, temp_memory: Result) -> ReflectionDecision:
         """
         - "whether information is enough" 
         - "if not, generate remaining information as a new request"  
