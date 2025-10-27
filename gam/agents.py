@@ -251,7 +251,7 @@ class ResearchAgent:
             )
     
 
-    def _search(self, plan: SearchPlan, temp_memory: Result, question: str) -> Result:
+    def _search(self, plan: SearchPlan, result: Result, question: str) -> Result:
         """
         Unified search with integration:
           1) Execute search tools
@@ -293,9 +293,9 @@ class ResearchAgent:
                         hits.extend(page_results)
 
         # Integrate search results with LLM
-        return self._integrate(hits, temp_memory, question)
+        return self._integrate(hits, result, question)
 
-    def _integrate(self, hits: List[Hit], temp_memory: Result, question: str) -> Result:
+    def _integrate(self, hits: List[Hit], result: Result, question: str) -> Result:
         """
         Integrate search hits with LLM to generate question-relevant result.
         """
@@ -304,15 +304,12 @@ class ResearchAgent:
         sources = []
         for i, hit in enumerate(hits, 1):
             evidence_text.append(f"{i}. [{hit.source}] {hit.snippet}")
-            sources.append({
-                "page_id": hit.page_id,
-                "snippet": hit.snippet,
-                "source": hit.source
-            })
+            if hit.page_id:
+                sources.append(hit.page_id)
         
         evidence_context = "\n".join(evidence_text) if evidence_text else "无搜索结果"
         
-        prompt = Integrate_PROMPT.format(question=question, evidence_context=evidence_context, temp_memory=temp_memory.content)
+        prompt = Integrate_PROMPT.format(question=question, evidence_context=evidence_context, result=result.content)
 
         try:
             response = self.generator.generate_single(prompt=prompt, schema=INTEGRATE_SCHEMA)
@@ -324,7 +321,7 @@ class ResearchAgent:
             )
         except Exception as e:
             print(f"Error in integration: {e}")
-            return temp_memory
+            return result
 
     # ---- search channels ----
     def _search_by_keyword(self, query_list: List[str], top_k: int = 10) -> List[List[Hit]]:
@@ -383,7 +380,7 @@ class ResearchAgent:
         
 
     # ---- reflection & summarization ----
-    def _reflection(self, request: str, temp_memory: Result) -> ReflectionDecision:
+    def _reflection(self, request: str, result: Result) -> ReflectionDecision:
         """
         - "whether information is enough" 
         - "if not, generate remaining information as a new request"  
@@ -391,7 +388,7 @@ class ResearchAgent:
         
         try:
             # Step 1: Check for completeness of information
-            check_prompt = InfoCheck_PROMPT.format(request=request, temp_memory=temp_memory.content)
+            check_prompt = InfoCheck_PROMPT.format(request=request, result=result.content)
             check_response = self.generator.generate_single(prompt=check_prompt, schema=INFO_CHECK_SCHEMA)
             check_data = check_response.get("json") or json.loads(check_response["text"])
             
@@ -404,7 +401,7 @@ class ResearchAgent:
             # Step 2: Generate a list of new requests
             generate_prompt = GenerateRequests_PROMPT.format(
                 request=request, 
-                temp_memory=temp_memory.content
+                result=result.content
             )
             generate_response = self.generator.generate_single(prompt=generate_prompt, schema=GENERATE_REQUESTS_SCHEMA)
             generate_data = generate_response.get("json") or json.loads(generate_response["text"])

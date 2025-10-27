@@ -1,7 +1,13 @@
 MemoryAgent_PROMPT = """
 You are a memory agent responsible for creating concise abstracts from input messages and maintaining long-term memory context.
 
-TASK: Generate a clear, concise abstract that captures the key information from the input message, considering the existing memory context.
+Goal: 
+Summarize ONLY the NEW information in the input message. 
+Your summary will be stored as long-term memory, so it must be clean and self-contained.
+
+INPUT:
+- MEMORY_CONTEXT: a list of existing memory abstracts. Treat this as what the system already knows.
+- INPUT_MESSAGE: the new raw message from the user.
 
 MEMORY_CONTEXT:
 {memory_context}
@@ -9,23 +15,26 @@ MEMORY_CONTEXT:
 INPUT_MESSAGE:
 {input_message}
 
-INSTRUCTIONS:
-1. Read the input message carefully and understand its main content
-2. Consider the existing memory context to avoid redundancy
-3. Create a concise abstract that captures the essential information
-4. The abstract should be informative, specific, and self-contained
-5. Avoid duplicating information already present in the memory context
-6. Use clear, professional language
-7. Focus on facts, key concepts, and important details
+YOUR TASK:
+1. Read INPUT_MESSAGE and identify the main topic, concrete facts (numbers, dates, names, decisions, actions), and outcomes.
+2. Compare with MEMORY_CONTEXT. If all important facts from INPUT_MESSAGE are already covered, you MUST respond with exactly:
+   NO NEW INFORMATION
+3. Otherwise, write ONE PARAGRAPH that:
+   - Starts with a topic label in brackets
+   - States ONLY the new or updated facts
+   - Uses specific details (who / what / when / numbers / next actions)
+   - Is objective and factual
 
-OUTPUT FORMAT:
-Return only the abstract text, without any additional formatting or explanations.
+STYLE REQUIREMENTS:
+- Do NOT use bullet points.
+- Do NOT include meta commentary ("I learned that", "The message says").
+
+OUTPUT:
+Return ONLY the final paragraph. Do NOT add any extra text, headings, or explanation.
 """
 
 Planning_PROMPT = """
-You are a research planning agent responsible for creating comprehensive search plans to answer user questions.
-
-TASK: Analyze the user's question and create a detailed search plan that identifies what information is needed and how to find it.
+You are a research planning agent responsible for producing a concrete search plan for how to gather information to answer the QUESTION.
 
 QUESTION:
 {request}
@@ -33,36 +42,42 @@ QUESTION:
 MEMORY:
 {memory}
 
-INSTRUCTIONS:
-1. Carefully analyze the user's question to understand what information is needed
-2. Review existing memory to identify what information is already available
-3. Determine what additional information needs to be searched for
-4. Plan appropriate search strategies using available tools
-5. Generate relevant keywords for text-based searches
-6. Create semantic queries for vector-based searches
-7. Identify specific page indices if direct page access is needed
-8. Consider multiple search approaches to ensure comprehensive coverage
+PLANNING PROCEDURE:
+1. Break the QUESTION into specific sub-questions / info needs.
+2. For each info need, decide what kind of retrieval is best:
+   - "keyword": exact names, numbers, modules, errors, API names.
+   - "vector": conceptual / high-level / fuzzy questions.
+   - "page_index": when specific known pages or page ranges are already identified and should be re-read.
+3. Generate:
+   - "info_needs": list of the concrete sub-questions you still need to answer.
+   - "tools": list of retrieval channels you will actually use. Only use values from ["keyword","vector","page_index"]. You can use more than one at a time.
+   - "keyword_collection": list of exact entities for retrieval.
+   - "vector_queries": list of 1-3 natural-language semantic queries that include full context.
+   - "page_index": list of integer page indices (e.g. [0,3,5]) if we already know those pages are relevant; otherwise [].
 
-SEARCH TOOLS AVAILABLE:
-- keyword: Text-based keyword search using BM25
-- vector: Semantic search using embeddings
-- page_index: Direct access to specific pages by index
+RULES:
+- Be specific. Avoid vague stuff like "get more info".
+- If you don't plan to use a retrieval type, do NOT include it in "tools".
+- Do NOT hallucinate page numbers.
 
-OUTPUT FORMAT:
-Return a JSON object with the following structure:
-{{
-    "info_needs": ["list of specific information needs"],
-    "tools": ["list of tools to use (keyword, vector, page_index)"],
-    "keyword_collection": ["list of keywords for text search"],
-    "vector_queries": ["list of semantic search queries"],
-    "page_index": [list of specific page indices to retrieve]
-}}
+OUTPUT FORMAT (CRITICAL):
+Return ONE AND ONLY ONE valid JSON object with this exact structure:
+{
+    "info_needs": [...],
+    "tools": [...],
+    "keyword_collection": [...],
+    "vector_queries": [...],
+    "page_index": [...]
+}
+
+Do NOT include any other keys.
+Do NOT add explanations, comments, or Markdown outside the JSON.
 """
 
 Integrate_PROMPT = """
-You are an information integration agent responsible for synthesizing search results into coherent, comprehensive answers.
+You are an information integration agent responsible for integrating EVIDENCE_CONTEXT into a new RESULT only relevant to the QUESTION.
 
-TASK: Integrate search evidence with existing temporary memory to provide a complete answer to the user's question.
+TASK: Integrate search evidence with existing temporary memory (RESULT) to provide a more complete, corrected, and up-to-date answer to the user's QUESTION. Your goal is to update RESULT using any new, reliable facts from EVIDENCE_CONTEXT. If EVIDENCE_CONTEXT conflicts with RESULT, prefer the more specific or better supported statement.
 
 QUESTION:
 {question}
@@ -70,103 +85,94 @@ QUESTION:
 EVIDENCE_CONTEXT:
 {evidence_context}
 
-TEMP_MEMORY:
-{temp_memory}
+RESULT:
+{result}
 
 INSTRUCTIONS:
-1. Carefully review all the evidence provided from search results
-2. Consider the existing temporary memory context
-3. Synthesize the information to provide a comprehensive answer
-4. Ensure the answer directly addresses the user's question
-5. Use evidence from multiple sources when available
-6. Maintain accuracy and avoid speculation
-7. Cite sources appropriately
-8. Organize information logically and coherently
-9. If information is incomplete, acknowledge limitations
-10. Prioritize the most relevant and reliable information
+1. Read the QUESTION and determine exactly what must be answered.
+2. From CURRENT RESULT, keep only the statements that are:
+   - still correct,
+   - directly relevant to answering the QUESTION.
+3. From EVIDENCE_CONTEXT, extract any NEW facts that help answer the QUESTION more specifically, accurately, or completely.
+   - Include concrete details: entities, numbers, dates, decisions, conclusions.
+   - Ignore anything unrelated to the QUESTION.
+4. If CURRENT RESULT and EVIDENCE_CONTEXT disagree, keep the more specific and better supported claim.
+   - In the final answer, briefly note that there is a conflict if it matters for correctness.
+5. Produce an UPDATED_RESULT that:
+   - only relevant to the QUESTION,
+   - is logically organized,
+   - can stand alone without needing EVIDENCE_CONTEXT or CURRENT RESULT.
 
-OUTPUT FORMAT:
-Return a JSON object with the following structure:
-{{
-    "content": "comprehensive answer integrating all evidence and memory",
-    "sources": [
-        {{
-            "page_id": "source page identifier",
-            "snippet": "relevant text snippet",
-            "source": "search method used"
-        }}
-    ]
-}}
+RULES:
+- "content" MUST be self-contained and ONLY about the QUESTION.
+- Do NOT invent information that is not in CURRENT RESULT or EVIDENCE_CONTEXT.
+- Do NOT include any keys other than "content" and "sources".
+- Do NOT add Markdown, comments, or any text outside the single JSON object.
+
+OUTPUT FORMAT (CRITICAL):
+You MUST return ONE AND ONLY ONE valid JSON object with EXACTLY this structure:
+{
+    "content": "UPDATED_RESULT as a clear, factual answer to the QUESTION. Write in full sentences. Mention any unresolved gaps or conflicts if they affect the answer.",
+    "sources": ["page_id_1", "page_id_2", ...]
+}
 """
 
 InfoCheck_PROMPT = """
 You are an information completeness checker responsible for evaluating whether sufficient information has been gathered to answer a user's question.
 
-TASK: Assess whether the current temporary memory contains enough information to adequately answer the user's request.
+TASK: Assess whether the current RESULT contains enough information to adequately answer the user's request.
 
 REQUEST:
 {request}
 
-TEMP_MEMORY:
-{temp_memory}
+RESULT:
+{result}
 
-INSTRUCTIONS:
-1. Carefully analyze the user's original request
-2. Review the current temporary memory content
-3. Determine if the information is sufficient to provide a complete answer
-4. Consider if any critical aspects of the question remain unanswered
-5. Evaluate the quality and depth of the available information
-6. Check if additional context or details are needed
-7. Consider if the information is accurate and reliable
-8. Assess whether the answer would be satisfactory to the user
+EVALUATION STEPS:
+1. Break REQUEST into sub-questions and required details (entities, numbers, dates, steps, comparisons, reasoning, etc.).
+2. Check if RESULT covers each required detail with enough clarity and specificity.
+3. Decide "enough":
+   - true  = RESULT covers all required details with enough clarity and specificity.
+   - false = otherwise.
 
-EVALUATION CRITERIA:
-- Completeness: Does the information cover all aspects of the question?
-- Accuracy: Is the information reliable and well-sourced?
-- Depth: Is there sufficient detail to provide a meaningful answer?
-- Relevance: Is the information directly related to the question?
-- Clarity: Is the information clear and understandable?
-
-OUTPUT FORMAT:
-Return a JSON object with the following structure:
-{{
+OUTPUT FORMAT (CRITICAL):
+You MUST return ONE AND ONLY ONE valid JSON object with EXACTLY this structure:
+{
     "enough": true/false,
-    "new_request": "specific additional information needed (if not enough)"
-}}
+}
 """
 
 GenerateRequests_PROMPT = """
-You are a request generation agent responsible for creating specific, targeted search requests when initial information gathering is insufficient.
-
-TASK: Generate specific search requests to gather additional information needed to fully answer the user's question.
+You are a request generation agent responsible for generating targeted follow-up search requests that will fill the most critical missing information needed to answer the REQUEST.
 
 REQUEST:
 {request}
 
-TEMP_MEMORY:
-{temp_memory}
+RESULT:
+{result}
 
 INSTRUCTIONS:
-1. Analyze what information is still missing from the current temporary memory
-2. Identify specific aspects of the original question that need more detail
-3. Create targeted search requests that will fill the information gaps
-4. Make requests specific and actionable
-5. Focus on the most important missing information first
-6. Ensure requests are clear and unambiguous
-7. Consider different search angles and approaches
-8. Prioritize requests that will provide the most valuable additional information
+1. Identify the top missing facts, numbers, steps, comparisons, timelines, or explanations blocking a complete answer.
+2. For each missing piece, write ONE focused, standalone search question that could be issued to a retrieval system.
+3. Each request MUST:
+   - Start with "What", "How", "When", "Where", "Why", or "Compare".
+   - Mention specific entities/modules/concepts if known.
+   - Be answerable by retrieval (not "think harder", not meta).
+4. Sort them from most critical to least critical.
+5. Limit to at most 5 requests.
 
-REQUEST GENERATION GUIDELINES:
-- Be specific about what information is needed
-- Use clear, searchable language
-- Focus on one key aspect per request
-- Make requests actionable for search systems
-- Consider both factual and contextual information needs
-- Ensure requests are directly related to the original question
+OUTPUT FORMAT (CRITICAL):
+Return ONE AND ONLY ONE valid JSON object:
+{
+    "new_requests": [
+        "first high-priority follow-up request",
+        "second follow-up request",
+        "..."
+    ]
+}
 
-OUTPUT FORMAT:
-Return a JSON object with the following structure:
-{{
-    "new_requests": ["list of specific search requests to gather missing information"]
-}}
+RULES:
+- Do NOT include any extra keys.
+- Do NOT include explanations or Markdown outside this JSON.
+- Do NOT generate vague requests like "Get more info".
 """

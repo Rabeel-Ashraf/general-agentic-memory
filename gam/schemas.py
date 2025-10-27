@@ -63,16 +63,10 @@ class Hit(BaseModel):
     source: str = Field(..., description="Source type (keyword/vector/page_index/tool)")
     meta: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
-class SourceInfo(BaseModel):
-    """Source information"""
-    page_id: Optional[str] = Field(None, description="Page ID in store")
-    snippet: str = Field(..., description="Text snippet from the source")
-    source: str = Field(..., description="Source type")
-
 class Result(BaseModel):
     """Search and integration result"""
     content: str = Field("", description="Integrated content about the question")
-    sources: List[SourceInfo] = Field(default_factory=list, description="List of sources used")
+    sources: List[Optional[str]] = Field(default_factory=list, description="List of page IDs of sources used")
 
 class ReflectionDecision(BaseModel):
     """Reflection decision"""
