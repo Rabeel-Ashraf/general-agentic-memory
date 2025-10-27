@@ -14,14 +14,14 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 import json
 
-from prompts import MemoryAgent_PROMPT, Planning_PROMPT, Integrate_PROMPT, InfoCheck_PROMPT, GenerateRequests_PROMPT
-from schemas import (
-    MemoryState, Page, MemoryUpdate, SearchPlan, ToolResult, Hit, Result, 
+from gam.prompts import MemoryAgent_PROMPT, Planning_PROMPT, Integrate_PROMPT, InfoCheck_PROMPT, GenerateRequests_PROMPT
+from gam.schemas import (
+    MemoryState, Page, MemoryUpdate, SearchPlan, Hit, Result, 
     ReflectionDecision, ResearchOutput, MemoryStore, PageStore, Retriever, 
-    Tool, ToolRegistry, InMemoryMemoryStore, InMemoryPageStore,
+    ToolRegistry, InMemoryMemoryStore, InMemoryPageStore,
     PLANNING_SCHEMA, INTEGRATE_SCHEMA, INFO_CHECK_SCHEMA, GENERATE_REQUESTS_SCHEMA
 )
-from generator import AbsGenerator
+from gam.generator import AbsGenerator
 
 # =============================
 # MemoryAgent

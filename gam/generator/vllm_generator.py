@@ -7,7 +7,7 @@ from transformers import AutoTokenizer
 from vllm.lora.request import LoRARequest
 
 from gam.generator.base import AbsGenerator
-from config import VLLMGeneratorConfig
+from gam.config import VLLMGeneratorConfig
 
 
 class VLLMGenerator(AbsGenerator):

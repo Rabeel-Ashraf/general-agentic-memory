@@ -93,8 +93,8 @@ class MemoryStore(Protocol):
 
 class PageStore(Protocol):
     def add(self, page: Page) -> None: ...
-    def get(self, index: int) -> Optional[Page]: ...
-    def list_all(self) -> List[Page]: ...
+    def load(self) -> List[Page]: ...
+    def save(self, pages: List[Page]) -> None: ...
 
 class Retriever(Protocol):
     """Unified interface for keyword / vector / page-id retrievers."""
@@ -156,7 +156,7 @@ class InMemoryMemoryStore:
 class InMemoryPageStore:
     """
     Simple append-only list store for Page.
-    Uses index-based access with file system persistence.
+    Uses file system persistence.
     """
     def __init__(self, dir_path: Optional[str] = None) -> None:
         self._dir_path = Path(dir_path) if dir_path else None
@@ -165,72 +165,42 @@ class InMemoryPageStore:
             self._pages_file = self._dir_path / "pages.json"
             # 如果文件存在，尝试加载现有页面
             if self._pages_file.exists():
-                self._load_pages()
+                self._pages = self.load()
 
-    def _load_pages(self) -> None:
-        """从文件系统加载所有页面"""
-        if not self._dir_path or not self._pages_file.exists():
-            return
-        
-        try:
-            with open(self._pages_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                # 假设存储的是页面列表
-                if isinstance(data, list):
-                    self._pages = [Page(**page_data) for page_data in data]
-                else:
-                    # 如果存储的是字典格式，尝试获取pages字段
-                    self._pages = [Page(**page_data) for page_data in data.get('pages', [])]
-        except Exception as e:
-            print(f"Warning: Failed to load pages from {self._pages_file}: {e}")
+    def load(self) -> List[Page]:
+        if self._dir_path and self._pages_file.exists():
+            try:
+                with open(self._pages_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    # 假设存储的是页面列表
+                    if isinstance(data, list):
+                        return [Page(**page_data) for page_data in data]
+                    else:
+                        # 如果存储的是字典格式，尝试获取pages字段
+                        return [Page(**page_data) for page_data in data.get('pages', [])]
+            except (json.JSONDecodeError, KeyError, TypeError) as e:
+                print(f"Warning: Failed to load pages from {self._pages_file}: {e}")
+                return []
+        return self._pages
 
-    def _save_pages(self) -> None:
-        """保存所有页面到文件"""
-        if not self._dir_path:
-            return
-        
-        # 确保目录存在
-        self._dir_path.mkdir(parents=True, exist_ok=True)
-        
-        try:
-            # 将所有页面转换为字典列表
-            pages_data = [page.model_dump() for page in self._pages]
-            with open(self._pages_file, 'w', encoding='utf-8') as f:
-                json.dump(pages_data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"Warning: Failed to save pages to {self._pages_file}: {e}")
+    def save(self, pages: List[Page]) -> None:
+        self._pages = pages
+        if self._dir_path:
+            # 确保目录存在
+            self._dir_path.mkdir(parents=True, exist_ok=True)
+            try:
+                # 将所有页面转换为字典列表
+                pages_data = [page.model_dump() for page in pages]
+                with open(self._pages_file, 'w', encoding='utf-8') as f:
+                    json.dump(pages_data, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                print(f"Warning: Failed to save pages to {self._pages_file}: {e}")
 
     def add(self, page: Page) -> None:
         self._pages.append(page)
-        # 保存到文件系统
+        # 自动保存到文件
         if self._dir_path:
-            self._save_pages()
-
-    def get(self, index: int) -> Optional[Page]:
-        if 0 <= index < len(self._pages):
-            return self._pages[index]
-        return None
-
-    def list_all(self) -> List[Page]:
-        return list(self._pages)
-    
-    def save(self, dir_path: str) -> None:
-        """保存页面到指定目录"""
-        save_path = Path(dir_path)
-        save_path.mkdir(parents=True, exist_ok=True)
-        
-        try:
-            pages_data = [page.model_dump() for page in self._pages]
-            with open(save_path / "pages.json", 'w', encoding='utf-8') as f:
-                json.dump(pages_data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"Warning: Failed to save pages to {save_path}: {e}")
-    
-    @classmethod
-    def load(cls, dir_path: str) -> "InMemoryPageStore":
-        """从指定目录加载页面"""
-        store = cls(dir_path=dir_path)
-        return store
+            self.save(self._pages)
 
 # =============================
 # Auto-generated JSON Schema

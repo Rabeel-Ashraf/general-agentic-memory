@@ -60,18 +60,7 @@ RULES:
 - If you don't plan to use a retrieval type, do NOT include it in "tools".
 - Do NOT hallucinate page numbers.
 
-OUTPUT FORMAT (CRITICAL):
-Return ONE AND ONLY ONE valid JSON object with this exact structure:
-{
-    "info_needs": [...],
-    "tools": [...],
-    "keyword_collection": [...],
-    "vector_queries": [...],
-    "page_index": [...]
-}
-
-Do NOT include any other keys.
-Do NOT add explanations, comments, or Markdown outside the JSON.
+Do NOT add explanations, comments, or Markdown outside JSON.
 """
 
 Integrate_PROMPT = """
@@ -108,13 +97,6 @@ RULES:
 - Do NOT invent information that is not in CURRENT RESULT or EVIDENCE_CONTEXT.
 - Do NOT include any keys other than "content" and "sources".
 - Do NOT add Markdown, comments, or any text outside the single JSON object.
-
-OUTPUT FORMAT (CRITICAL):
-You MUST return ONE AND ONLY ONE valid JSON object with EXACTLY this structure:
-{
-    "content": "UPDATED_RESULT as a clear, factual answer to the QUESTION. Write in full sentences. Mention any unresolved gaps or conflicts if they affect the answer.",
-    "sources": ["page_id_1", "page_id_2", ...]
-}
 """
 
 InfoCheck_PROMPT = """
@@ -134,12 +116,6 @@ EVALUATION STEPS:
 3. Decide "enough":
    - true  = RESULT covers all required details with enough clarity and specificity.
    - false = otherwise.
-
-OUTPUT FORMAT (CRITICAL):
-You MUST return ONE AND ONLY ONE valid JSON object with EXACTLY this structure:
-{
-    "enough": true/false,
-}
 """
 
 GenerateRequests_PROMPT = """
@@ -160,16 +136,6 @@ INSTRUCTIONS:
    - Be answerable by retrieval (not "think harder", not meta).
 4. Sort them from most critical to least critical.
 5. Limit to at most 5 requests.
-
-OUTPUT FORMAT (CRITICAL):
-Return ONE AND ONLY ONE valid JSON object:
-{
-    "new_requests": [
-        "first high-priority follow-up request",
-        "second follow-up request",
-        "..."
-    ]
-}
 
 RULES:
 - Do NOT include any extra keys.

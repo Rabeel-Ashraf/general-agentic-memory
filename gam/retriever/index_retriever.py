@@ -1,10 +1,6 @@
 import os
 import json
-import numpy as np
 from typing import Dict, Any, List
-from FlagEmbedding import FlagAutoModel
-from FlagEmbedding.abc.evaluation.utils import index as faiss_index
-from FlagEmbedding.abc.evaluation.utils import search
 
 from gam.retriever.base import AbsRetriever
 from gam.schemas import InMemoryPageStore, Hit, Page
@@ -50,7 +46,3 @@ class IndexRetriever(AbsRetriever):
                     meta={}
                 ))
         return [hits]  # 包装成 List[List[Hit]] 格式
-
-
-
-
