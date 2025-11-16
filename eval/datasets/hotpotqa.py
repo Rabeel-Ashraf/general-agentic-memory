@@ -7,8 +7,8 @@ HotpotQA 是一个多跳问答数据集
 
 import json
 from typing import Any, Dict, List
-from benchmarks.datasets.base import BaseBenchmark, BenchmarkConfig
-from benchmarks.utils import chunk_text_smartly, compute_metrics
+from eval.datasets.base import BaseBenchmark, BenchmarkConfig
+from eval.utils import chunk_text_smartly, compute_metrics
 
 
 class HotpotQABenchmark(BaseBenchmark):
@@ -59,6 +59,6 @@ class HotpotQABenchmark(BaseBenchmark):
         predictions: List[str], 
         ground_truths: List[List[str]]
     ) -> Dict[str, float]:
-        """计算 EM 和 F1 指标"""
-        return compute_metrics(predictions, ground_truths, metrics=["em", "f1"])
+        """计算 F1 指标"""
+        return compute_metrics(predictions, ground_truths, metrics=["f1"])
 

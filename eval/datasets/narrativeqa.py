@@ -6,8 +6,8 @@ NarrativeQA 是一个叙事阅读理解数据集，包含长文档和相关问�
 """
 
 from typing import Any, Dict, List
-from benchmarks.datasets.base import BaseBenchmark, BenchmarkConfig
-from benchmarks.utils import chunk_text_by_sentences, compute_metrics
+from eval.datasets.base import BaseBenchmark, BenchmarkConfig
+from eval.utils import chunk_text_by_sentences, compute_metrics
 
 
 class NarrativeQABenchmark(BaseBenchmark):
@@ -61,10 +61,10 @@ class NarrativeQABenchmark(BaseBenchmark):
         predictions: List[str], 
         ground_truths: List[List[str]]
     ) -> Dict[str, float]:
-        """计算 F1 和 ROUGE-L 指标"""
+        """计算 F1 指标"""
         return compute_metrics(
             predictions, 
             ground_truths, 
-            metrics=["f1", "rouge-l"]
+            metrics=["f1"]
         )
 

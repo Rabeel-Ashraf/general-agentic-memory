@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""GAM Benchmarks 工具模块"""
+"""GAM 评估工具模块"""
 
-from benchmarks.utils.chunking import (
+from eval.utils.chunking import (
     chunk_text_by_tokens,
     chunk_text_by_sentences,
     chunk_text_smartly,
 )
 
-from benchmarks.utils.metrics import (
+from eval.utils.metrics import (
     normalize_answer,
     f1_score,
     exact_match_score,

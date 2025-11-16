@@ -56,7 +56,7 @@ echo "检索器: $RETRIEVER"
 echo "输出目录: $OUTPUT_DIR"
 echo "=========================================="
 
-python -m benchmarks.run \
+python -m eval.run \
     --dataset locomo \
     --data-path "$DATA_PATH" \
     --generator "$GENERATOR" \

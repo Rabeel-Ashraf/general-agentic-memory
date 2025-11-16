@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-GAM Benchmarks - 统一评估入口
+GAM Evaluation Suite - 统一评估入口
 
 使用示例：
     # HotpotQA
-    python -m benchmarks.run --dataset hotpotqa --data-path data/hotpotqa.json
+    python -m eval.run --dataset hotpotqa --data-path data/hotpotqa.json
     
     # NarrativeQA
-    python -m benchmarks.run --dataset narrativeqa --data-path narrativeqa --max-samples 100
+    python -m eval.run --dataset narrativeqa --data-path narrativeqa --max-samples 100
     
     # LoCoMo
-    python -m benchmarks.run --dataset locomo --data-path data/locomo.json
+    python -m eval.run --dataset locomo --data-path data/locomo.json
     
     # RULER
-    python -m benchmarks.run --dataset ruler --data-path data/ruler.jsonl --dataset-name niah_single_1
+    python -m eval.run --dataset ruler --data-path data/ruler.jsonl --dataset-name niah_single_1
 """
 
 import argparse
@@ -25,13 +25,13 @@ import os
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
-from benchmarks.datasets import (
+from eval.datasets import (
     HotpotQABenchmark,
     NarrativeQABenchmark,
     LoCoMoBenchmark,
     RULERBenchmark,
 )
-from benchmarks.datasets.base import BenchmarkConfig
+from eval.datasets.base import BenchmarkConfig
 
 
 def parse_args():
@@ -42,15 +42,15 @@ def parse_args():
         epilog="""
 示例:
   # 评估 HotpotQA（使用 OpenAI GPT-4）
-  python -m benchmarks.run --dataset hotpotqa --data-path data/hotpotqa.json \\
+  python -m eval.run --dataset hotpotqa --data-path data/hotpotqa.json \\
       --generator openai --model gpt-4 --api-key YOUR_API_KEY
   
   # 评估 NarrativeQA（使用本地 VLLM 模型）
-  python -m benchmarks.run --dataset narrativeqa --data-path narrativeqa \\
+  python -m eval.run --dataset narrativeqa --data-path narrativeqa \\
       --generator vllm --model meta-llama/Llama-3-8B --max-samples 50
   
   # 评估 RULER（指定数据集名称）
-  python -m benchmarks.run --dataset ruler --data-path data/ruler_niah.jsonl \\
+  python -m eval.run --dataset ruler --data-path data/ruler_niah.jsonl \\
       --dataset-name niah_single_1 --retriever bm25
         """
     )

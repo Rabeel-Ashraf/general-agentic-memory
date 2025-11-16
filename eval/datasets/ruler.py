@@ -8,8 +8,8 @@ RULER (Rule-based Understanding of Long-context Evaluation Resource)
 
 import json
 from typing import Any, Dict, List
-from benchmarks.datasets.base import BaseBenchmark, BenchmarkConfig
-from benchmarks.utils import chunk_text_smartly, compute_metrics, normalize_answer
+from eval.datasets.base import BaseBenchmark, BenchmarkConfig
+from eval.utils import chunk_text_smartly, compute_metrics, normalize_answer
 
 
 class RULERBenchmark(BaseBenchmark):

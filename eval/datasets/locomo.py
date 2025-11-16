@@ -8,8 +8,8 @@ LoCoMo 是一个长对话记忆数据集，测试多轮对话中的记忆能力
 import re
 import json
 from typing import Any, Dict, List, Optional, Tuple
-from benchmarks.datasets.base import BaseBenchmark, BenchmarkConfig
-from benchmarks.utils.metrics import compute_locomo_metrics
+from eval.datasets.base import BaseBenchmark, BenchmarkConfig
+from eval.utils.metrics import compute_locomo_metrics
 
 
 class LoCoMoBenchmark(BaseBenchmark):

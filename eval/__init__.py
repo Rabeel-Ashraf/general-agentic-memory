@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-GAM Benchmarks - 评估基准套件
+GAM Evaluation Suite - 评估基准套件
 
 支持的数据集：
 - HotpotQA: 多跳问答

@@ -76,7 +76,7 @@ export NUM_WORKERS=4
 #   bash scripts/eval_hotpotqa.sh --data-path $HOTPOTQA_PATH
 
 # 或使用 Python CLI：
-#   python -m benchmarks.run \
+#   python -m eval.run \
 #       --dataset hotpotqa \
 #       --data-path $HOTPOTQA_PATH \
 #       --generator $DEFAULT_GENERATOR \
