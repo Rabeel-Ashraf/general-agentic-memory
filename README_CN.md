@@ -15,7 +15,8 @@
 
 <h5 align="center"> 🎉 如果你喜欢我们的项目，请在 GitHub 上给我们一个 star ⭐ 以获取最新更新。</h5>
 
-**General Agentic Memory (GAM)** 为 AI 智能体提供下一代记忆框架，将长期记忆与动态推理相结合。遵循即时(JIT)原则，在离线时保持完整的上下文保真度，在线时执行深度研究以构建自适应、高效用的上下文。通过其双智能体架构——记忆构建器和研究者——GAM 集成了结构化记忆与迭代检索和反思，在 LoCoMo、HotpotQA、LongBench v2 和 LongCodeBench 等基准测试中达到了最先进的性能。
+**General Agentic Memory (GAM)** 为 AI 智能体提供下一代记忆框架，将长期记忆与动态推理相结合。遵循即时(JIT)原则，在离线时保持完整的上下文保真度，在线时执行深度研究以构建自适应、高效用的上下文。通过其双智能体架构——记忆构建器和研究者——GAM 集成了结构化记忆与迭代检索和反思，在 LoCoMo, HotpotQA, RULER, 和 NarrativeQA  等基准测试中达到了最先进的性能。
+
 
 - **论文**: <a href="[https://arxiv.org/abs/2511.18423](https://arxiv.org/abs/2511.18423)" target="_blank">[https://arxiv.org/abs/2511.18423](https://arxiv.org/abs/2511.18423)</a>
 - **Huggingface**: <a href="[https://huggingface.co/papers/2511.18423](https://huggingface.co/papers/2511.18423)" target="_blank">[https://huggingface.co/papers/2511.18423](https://huggingface.co/papers/2511.18423)</a>
@@ -34,7 +35,7 @@
 </br> 协作框架，记忆构建器从原始会话构建结构化记忆，研究者执行迭代检索、反思和总结以提供精确的自适应上下文。
 
 * 🚀 **卓越的基准性能**
-</br> 在 LoCoMo、HotpotQA、LongBench v2 和 LongCodeBench 上取得最先进结果，在 F1 和 BLEU-1 指标上超越 A-MEM、Mem0 和 MemoryOS 等系统。
+</br> 在 LoCoMo, HotpotQA, RULER, 和 NarrativeQA 上取得最先进结果，在 F1 和 BLEU-1 指标上超越 A-MEM、Mem0、 MemoryOS和 LightMem 等系统。
 
 * 🧩 **模块化与可扩展设计**
 </br> 支持灵活的插件化记忆构建、检索策略和推理工具，便于集成到多智能体框架或独立 LLM 部署中。
@@ -292,12 +293,7 @@ python -m eval.run \
 **如果你觉得这个项目有用，请考虑引用我们的论文：**
 
 ```bibtex
-@article{gam2024,
-  title={General Agentic Memory: Just-in-Time Memory for AI Agents},
-  author={Your Name},
-  journal={arXiv preprint},
-  year={2024}
-}
+
 ```
 
 <span id='community'/>
@@ -307,7 +303,7 @@ python -m eval.run \
 ### 🎯 联系我们
 
 - GitHub Issues: [报告 bug 或请求功能](https://github.com/VectorSpaceLab/general-agentic-memory/issues)
-- Email: your-email@example.com
+- Email: zhengliu1026@gmail.com
 
 ### 🌟 Star 历史
 

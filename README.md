@@ -15,7 +15,7 @@ A general memory system for agents, powered by deep-research
 
 <h5 align="center"> 🎉 If you like our project, please give us a star ⭐ on GitHub for the latest update.</h5>
 
-**General Agentic Memory (GAM)** provides a next-generation memory framework for AI agents, combining long-term retention with dynamic reasoning. Following the Just-in-Time (JIT) principle, it preserves full contextual fidelity offline while performing deep research online to build adaptive, high-utility context. With its dual-agent architecture—Memorizer and Researcher—GAM integrates structured memory with iterative retrieval and reflection, achieving state-of-the-art performance across LoCoMo, HotpotQA, LongBench v2, and LongCodeBench benchmarks.
+**General Agentic Memory (GAM)** provides a next-generation memory framework for AI agents, combining long-term retention with dynamic reasoning. Following the Just-in-Time (JIT) principle, it preserves full contextual fidelity offline while performing deep research online to build adaptive, high-utility context. With its dual-agent architecture—Memorizer and Researcher—GAM integrates structured memory with iterative retrieval and reflection, achieving state-of-the-art performance across LoCoMo, HotpotQA, RULER, and NarrativeQA benchmarks.
 
 - **Paper**: <a href="[https://arxiv.org/abs/2511.18423](https://arxiv.org/abs/2511.18423)" target="_blank">[https://arxiv.org/abs/2511.18423](https://arxiv.org/abs/2511.18423)</a>
 - **Huggingface**: <a href="[https://huggingface.co/papers/2511.18423](https://huggingface.co/papers/2511.18423)" target="_blank">[https://huggingface.co/papers/2511.18423](https://huggingface.co/papers/2511.18423)</a>
@@ -34,7 +34,7 @@ A general memory system for agents, powered by deep-research
 </br> A cooperative framework where the Memorizer constructs structured memory from raw sessions, and the Researcher performs iterative retrieval, reflection, and summarization to deliver precise, adaptive context.
 
 * 🚀 **Superior Performance Across Benchmarks**
-</br> Achieves state-of-the-art results on LoCoMo, HotpotQA, LongBench v2, and LongCodeBench, surpassing prior systems such as A-MEM, Mem0, and MemoryOS in both F1 and BLEU-1 metrics.
+</br> Achieves state-of-the-art results on LoCoMo, HotpotQA, RULER, and NarrativeQA, surpassing prior systems such as A-MEM、Mem0、 MemoryOS and LightMem in both F1 and BLEU-1 metrics.
 
 * 🧩 **Modular & Extensible Design**
 </br> Built to support flexible plug-ins for memory construction, retrieval strategies, and reasoning tools—facilitating easy integration into multi-agent frameworks or standalone LLM deployments.
@@ -301,7 +301,7 @@ More detailed documentation is coming soon 🚀. Check these resources in the me
 ### 🎯 Contact Us
 
 - GitHub Issues: [Report bugs or request features](https://github.com/VectorSpaceLab/general-agentic-memory/issues)
-- Email: your-email@example.com
+- Email: zhengliu1026@gmail.com
 
 ### 🌟 Star History
 
