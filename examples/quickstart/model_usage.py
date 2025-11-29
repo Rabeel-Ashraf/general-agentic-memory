@@ -211,8 +211,7 @@ def main():
     custom_endpoint_success = custom_api_endpoint_example()
     
     # 测试 VLLM 本地模型（可选）
-    print("是否测试 VLLM 本地模型？（需要 GPU 和模型文件）")
-    print("注意: 这将下载和加载大型模型，需要较长时间")
+    print("是否测试 VLLM 本地模型？")
     test_vllm = input("输入 'yes' 继续，或按 Enter 跳过: ").strip().lower()
     
     if test_vllm == 'yes':
