@@ -11,13 +11,10 @@ from eval.utils.metrics import (
     normalize_answer,
     f1_score,
     exact_match_score,
-    rouge_score,
     compute_metrics,
     # RULER specific
     normalize_text_ruler,
     evaluate_answer_ruler,
-    # NarrativeQA specific
-    bleu1_score_narrativeqa,
     # LoCoMo specific
     normalize_text_locomo,
     f1_score_locomo,
@@ -34,7 +31,6 @@ __all__ = [
     "normalize_answer",
     "f1_score",
     "exact_match_score",
-    "rouge_score",
     "compute_metrics",
     # Metrics - LoCoMo specific
     "normalize_text_locomo",

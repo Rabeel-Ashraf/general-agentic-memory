@@ -6,7 +6,6 @@
 - Exact Match (EM)
 - F1 Score
 - BLEU-1
-- ROUGE
 """
 
 import re
@@ -147,38 +146,6 @@ def f1_score(prediction: str, ground_truths: List[str]) -> float:
     return max_f1
 
 
-def rouge_score(
-    prediction: str, 
-    ground_truths: List[str],
-    rouge_type: str = "rouge-l"
-) -> float:
-    """
-    计算 ROUGE 分数
-    
-    Args:
-        prediction: 预测答案
-        ground_truths: 标准答案列表
-        rouge_type: ROUGE 类型 ("rouge-1", "rouge-2", "rouge-l")
-        
-    Returns:
-        最高的 ROUGE F1 分数
-    """
-    try:
-        from rouge_score import rouge_scorer
-        scorer = rouge_scorer.RougeScorer([rouge_type], use_stemmer=True)
-        
-        max_score = 0.0
-        for gt in ground_truths:
-            scores = scorer.score(gt, prediction)
-            score = scores[rouge_type].fmeasure
-            max_score = max(max_score, score)
-        
-        return max_score
-    except ImportError:
-        # 如果 rouge_score 不可用，返回 F1 分数作为替代
-        return f1_score(prediction, ground_truths)
-
-
 def compute_metrics(
     predictions: List[str],
     ground_truths_list: List[List[str]],
@@ -190,7 +157,7 @@ def compute_metrics(
     Args:
         predictions: 预测答案列表
         ground_truths_list: 标准答案列表的列表
-        metrics: 要计算的指标列表 ["em", "f1", "rouge"]
+        metrics: 要计算的指标列表 ["em", "f1"]
         
     Returns:
         各指标的平均分数
@@ -209,15 +176,6 @@ def compute_metrics(
         
         if "f1" in metrics:
             results["f1"].append(f1_score(pred, gts))
-        
-        if "rouge" in metrics or "rouge-l" in metrics:
-            results.setdefault("rouge-l", []).append(rouge_score(pred, gts, "rouge-l"))
-        
-        if "rouge-1" in metrics:
-            results.setdefault("rouge-1", []).append(rouge_score(pred, gts, "rouge-1"))
-        
-        if "rouge-2" in metrics:
-            results.setdefault("rouge-2", []).append(rouge_score(pred, gts, "rouge-2"))
     
     # 计算平均值
     avg_results = {

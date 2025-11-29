@@ -14,13 +14,13 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
 
 setup(
     name="general-agentic-memory",
-    version="1.0.0",
-    author="Your Name",
-    author_email="your.email@example.com",
-    description="基于记忆代理架构的统一多数据集问答系统",
+    version="0.1.0",
+    author="GAM Team",
+    author_email="zhengliu1026@gmail.com",
+    description="A general memory system for agents, powered by deep-research",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/general-agentic-memory",
+    url="https://github.com/VectorSpaceLab/general-agentic-memory",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 4 - Beta",
@@ -37,7 +37,7 @@ setup(
     install_requires=requirements,
     entry_points={
         "console_scripts": [
-            "unified-qa=examples.unified_qa:main",
+            "gam-eval=eval.run:main",
         ],
     },
 )
