@@ -4,7 +4,7 @@
 set -e
 
 # 默认参数
-DATA_PATH="data/locomo.json"
+DATA_PATH="data/locomo10.json"
 GENERATOR="openai"
 MODEL="gpt-4"
 RETRIEVER="index", "bm25", "dense"

@@ -276,30 +276,70 @@ For detailed examples and advanced usage:
 
 We provide a complete evaluation framework to reproduce the experimental results in the paper.
 
+### Datasets
+
+Because the datasets are large, they are **not** stored in this repository.  
+Please download them from the original sources and place them under the `data/` directory as follows:
+
+- **LoCoMo**
+
+  - Download `locomo10.json` from  
+    https://github.com/snap-research/locomo/blob/main/data/locomo10.json  
+  - Save it as:
+    - `data/locomo10.json`  
+
+- **HotpotQA**
+
+  - Download the following files from  
+    https://huggingface.co/datasets/BytedTsinghua-SIA/hotpotqa/tree/main  
+    - `eval_400.json`  
+    - `eval_1600.json`  
+    - `eval_3200.json`  
+  - Place them under:
+    - `data/hotpotqa/`  
+      (or pass the exact file you want to evaluate via `--data-path`)
+
+- **RULER**
+
+  - Download the `data` folder from  
+    https://huggingface.co/datasets/lighteval/RULER-131072-Qwen2.5-Instruct/tree/main  
+  - Place it under:
+    - `data/ruler/`  
+
+- **NarrativeQA**
+
+  - Download the `data` folder from  
+    https://huggingface.co/datasets/deepmind/narrativeqa/tree/main  
+  - Place it under:
+    - `data/narrativeqa/`
+
 ### Quick Start
 
 ```bash
 # 1. Prepare datasets
 mkdir -p data
-# Place your datasets in the data/ directory
+# Download the datasets from the links above and place them under data/
+# following the suggested directory structure.
 
 # 2. Set environment variables
 export OPENAI_API_KEY="your_api_key_here"
 
 # 3. Run evaluations
+
 # HotpotQA
-bash scripts/eval_hotpotqa.sh --data-path data/hotpotqa.json
+# (adjust --data-path according to which split you want to use, e.g. data/hotpotqa/eval_400.json)
+bash scripts/eval_hotpotqa.sh --data-path data/hotpotqa/eval_400.json
 
 # NarrativeQA
-bash scripts/eval_narrativeqa.sh --data-path narrativeqa --max-samples 100
+bash scripts/eval_narrativeqa.sh --data-path data/narrativeqa --max-samples 100
 
 # LoCoMo
 bash scripts/eval_locomo.sh --data-path data/locomo.json
 
 # RULER
-bash scripts/eval_ruler.sh --data-path data/ruler.jsonl --dataset-name niah_single_1
+bash scripts/eval_ruler.sh --data-path data/ruler/data.jsonl --dataset-name niah_single_1
 
-# Or run all evaluations
+# Or run all evaluations (make sure all datasets are prepared)
 bash scripts/eval_all.sh
 ```
 
