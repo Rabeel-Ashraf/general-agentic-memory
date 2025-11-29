@@ -32,9 +32,7 @@ def basic_memory_example():
     # 1. 配置并创建 Generator
     gen_config = OpenAIGeneratorConfig(
         model_name="gpt-4o-mini",
-        # api_key=os.getenv("OPENAI_API_KEY"),  # 从环境变量读取
-        api_key="sk-i7XJ1l5kLoJktEkjGzSjQJcmyAz5cgONof3qARfCZ0paoami",
-        base_url="https://api.key77qiqi.cn/v1",
+        api_key=os.getenv("OPENAI_API_KEY"),  # 从环境变量读取
         temperature=0.3,
         max_tokens=256
     )
@@ -91,10 +89,8 @@ def research_example(memory_store, page_store):
     # 1. 配置并创建 Generator
     gen_config = OpenAIGeneratorConfig(
         model_name="gpt-4o-mini",
-        # api_key=os.getenv("OPENAI_API_KEY"),
-        # base_url="https://api.openai.com/v1",
-        api_key="sk-i7XJ1l5kLoJktEkjGzSjQJcmyAz5cgONof3qARfCZ0paoami",
-        base_url="https://api.key77qiqi.cn/v1",
+        api_key=os.getenv("OPENAI_API_KEY"),
+        base_url="https://api.openai.com/v1",
         temperature=0.3,
         max_tokens=2048
     )
@@ -138,20 +134,6 @@ def research_example(memory_store, page_store):
         print("✅ BM25 检索器创建成功")
     except Exception as e:
         print(f"[WARN] BM25 检索器创建失败: {e}")
-    
-    dense_index_dir = os.path.join(index_dir, "dense_index")
-    if os.path.exists(dense_index_dir):
-        import shutil
-        shutil.rmtree(dense_index_dir)
-    
-    dense_config = DenseRetrieverConfig(
-        index_dir=dense_index_dir,
-        model_name="BAAI/bge-m3"
-    )
-    dense_retriever = DenseRetriever(dense_config.__dict__)
-    dense_retriever.build(page_store)
-    retrievers["vector"] = dense_retriever
-    print("✅ Dense 检索器创建成功")
     
     # Dense 检索器
     try:

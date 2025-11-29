@@ -24,9 +24,7 @@ def openai_api_example():
     # 1. 配置 OpenAI Generator
     gen_config = OpenAIGeneratorConfig(
         model_name="gpt-4o-mini",  # 或 "gpt-4", "gpt-3.5-turbo"
-        # api_key=os.getenv("OPENAI_API_KEY"),
-        api_key="sk-i7XJ1l5kLoJktEkjGzSjQJcmyAz5cgONof3qARfCZ0paoami",
-        base_url="https://api.key77qiqi.cn/v1",
+        api_key=os.getenv("OPENAI_API_KEY"),
         temperature=0.3,
         max_tokens=1000
     )
