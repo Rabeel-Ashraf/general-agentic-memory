@@ -203,7 +203,7 @@ def main():
         memory_agent, memory_store, page_store = basic_memory_example()
         
         # 2. 运行基于记忆的研究示例
-        research_result = research_example( memory_store, page_store)
+        research_result = research_example(memory_store, page_store)
         
         print("\n" + "=" * 60)
         print("✅ 示例运行完成！")
